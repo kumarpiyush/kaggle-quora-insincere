@@ -23,7 +23,14 @@ class DataManager() :
         self.data = pandas.read_csv(path)
 
     def tokenize(sentence) :
-        return nltk.word_tokenize(sentence)
+        tokens = nltk.word_tokenize(sentence)
+        features = []
+        for i in range(len(tokens)) :
+            features.append(tokens[i])
+            if i > 0 : features.append(tokens[i-1] + "_" + tokens[i])
+            if i > 1 : features.append(tokens[i-2] + "_" + tokens[i-1] + "_" + tokens[i])
+
+        return features
 
 
 class LRModel :
@@ -57,6 +64,7 @@ def main() :
     print("Data loaded")
 
     # train_set = train_set[:1000]
+    # test_set = test_set[:1000]
 
     model = LRModel()
     model.fit(train_set.question_text, train_set.target)

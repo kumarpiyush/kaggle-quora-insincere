@@ -37,9 +37,9 @@ class LRModel :
     def __init__(self, lrThreshold = 0.5) :
         self.lrThreshold = lrThreshold
 
-        self.cv = CountVectorizer(tokenizer = DataManager.tokenize, lowercase = False)
-        self.lr = LogisticRegression(penalty = "l2", C = 0.5, tol = 1e-8, max_iter = 1000)
-        self.pipeline = Pipeline(steps = [("cv",self.cv), ("lr",self.lr)])
+        self._cv = CountVectorizer(tokenizer = DataManager.tokenize, lowercase = False)
+        self._lr = LogisticRegression(penalty = "l2", C = 0.5, tol = 1e-8, max_iter = 1000)
+        self.pipeline = Pipeline(steps = [("cv",self._cv), ("lr",self._lr)])
 
     def fit(self, featureVector, labels, weights = None) :
         if weights == None :
@@ -54,6 +54,15 @@ class LRModel :
         def _thresholdPredict(probs) :
             return [i[1] > self.lrThreshold for i in probs]
         return _thresholdPredict(self.pipeline.predict_proba(featureVector))
+
+    def feature_importance(self) :
+        print("LR bias : {}".format(self._lr.intercept_[0]))
+
+        weights = [(k, self._lr.coef_[0][v]) for k,v in self._cv.vocabulary_.items()]
+        weights = sorted(weights, key = lambda x : -abs(x[1]))
+
+        for i in range(20) :
+            print(weights[i][0], weights[i][1])
 
 
 def main() :
@@ -75,8 +84,12 @@ def main() :
     test_set["prediction"] = [int(x) for x in pred]
     test_set.to_csv(Constants.Data.output_file, columns = ["qid", "prediction"], index = False)
 
+    model.feature_importance()
+
     end_time = time.time()
     print("Total time : {} secs".format(end_time - start_time))
+
+    return model
 
 if __name__ == "__main__" :
     main()

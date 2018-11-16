@@ -1,2 +1,4 @@
 all.zip
 input/
+*.swp
+__pycache__

@@ -17,6 +17,8 @@ import torch
 import torch.nn as nn
 import torchtext.vocab as torchvocab
 
+import tensorboard_logger as tbrd
+
 logging.basicConfig(level=logging.INFO)
 
 class Constants() :
@@ -25,6 +27,8 @@ class Constants() :
         train = "train.csv"
         test = "test.csv"
         glove_dir = "embeddings/glove.840B.300d"
+
+        model_dir = "../model_dir"
 
         output_file = "submission.csv"
 
@@ -91,7 +95,7 @@ class DataManager() :
 
     def batch_indices_to_tensor(batch) :
         nd = np.ndarray([len(batch), 2+Constants.max_token_length], np.int64)
-        
+
         for i in range(len(batch)) :
             for j in range(2+Constants.max_token_length) :
                 nd[i][j]=batch.iloc[i][j]
@@ -173,7 +177,7 @@ class LstmModel(nn.Module) :
             t_presoftmax = self.forward(batch)
             t_softmax = self.softmax(t_presoftmax)
             return t_softmax[:,1].numpy()
-    
+
     def predict(self, batch) :
         return [0 if x<0.5 else 1 for x in self.predict_proba(batch)]
 
@@ -188,22 +192,27 @@ class Trainer() :
         self.optimizer = torch.optim.Adadelta([p for p in model.parameters() if p.requires_grad])
 
     def train(self, train_set, val_set = None) :
-        for eps in range(Constants.Training.n_epochs) :
-            logging.info("Epoch : {}".format(eps))
+        for epoch in range(Constants.Training.n_epochs) :
+            logging.info("Epoch : {}".format(epoch))
 
             for batch in DataManager.batch(train_set) :
                 self.optimizer.zero_grad()
                 loss = self.model.step(DataManager.batch_indices_to_tensor(batch.token_ids), torch.from_numpy(batch.target.as_matrix()))
-                logging.info("Loss : {}".format(loss))
+                tbrd.log_value("loss", loss)
                 self.optimizer.step()
-            
+
             if val_set is not None :
                 val_f1 = self.model.calculate_f1(DataManager.batch_indices_to_tensor(val_set.token_ids), torch.from_numpy(val_set.target.as_matrix()))
                 logging.info("Validation F1 : {}".format(val_f1))
+                tbrd.log_value("Validation F1", val_f1, epoch)
 
 
 def main() :
     modelName = "LSTM"
+
+    if not os.path.exists(Constants.Data.model_dir) :
+        os.mkdir(Constants.Data.model_dir)
+    tbrd.configure(Constants.Data.model_dir)
 
     start_time = time.time()
 
@@ -212,8 +221,8 @@ def main() :
     test_set = DataManager.load_data(os.path.join(Constants.Data.datadir, Constants.Data.test))
     logging.info("Data loaded")
 
-    train_set = train_set[:1000]
-    val_set = val_set[:1000]
+    train_set = train_set[:1000000]
+    val_set = val_set[:10000]
     test_set = test_set[:1000]
 
     if modelName == "LR" :
@@ -235,11 +244,11 @@ def main() :
     elif modelName == "LSTM" :
         dm = DataManager()
         logging.info("DataManager loaded")
-        
+
         train_set["token_ids"] = dm.sentences_to_indices(train_set.question_text)
         val_set["token_ids"] = dm.sentences_to_indices(val_set.question_text)
         test_set["token_ids"] = dm.sentences_to_indices(test_set.question_text)
-        
+
         model = LstmModel(dm.embedding_layer)
 
         trainer = Trainer(model)

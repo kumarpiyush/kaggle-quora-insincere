@@ -1,5 +1,6 @@
 all.zip
 input/
+model_dir/
 *.swp
 __pycache__
 .ipynb_checkpoints

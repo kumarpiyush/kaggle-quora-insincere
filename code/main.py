@@ -1,8 +1,15 @@
+# global control flags
+MODELNAME = "LSTM"
+TRAINING_SAMPLE = 1000000
+HAS_TBRD = True
+
+# imports
 import os
 import pandas
 import nltk
 import time
 import logging
+import random
 from collections import Counter
 
 import numpy as np
@@ -17,18 +24,31 @@ import torch
 import torch.nn as nn
 import torchtext.vocab as torchvocab
 
-import tensorboard_logger as tbrd
-
 logging.basicConfig(level=logging.INFO)
+
+if HAS_TBRD :
+    import tensorboard_logger as tbrd
+else :
+    class TensorBoardLogger :
+        def __init__(self) :
+            pass
+
+        def configure(self, logpath) :
+            pass
+
+        def log_value(self, name, value, step=None) :
+            pass
+
+    tbrd = TensorBoardLogger()
 
 class Constants() :
     class Data() :
         datadir = "../input"
         train = "train.csv"
         test = "test.csv"
-        glove_dir = "embeddings/glove.840B.300d"
+        glove_path = "embeddings/glove.840B.300d/glove.840B.300d.txt"
 
-        model_dir = "../model_dir"
+        model_dir = "model_dir"
 
         output_file = "submission.csv"
 
@@ -39,7 +59,7 @@ class Constants() :
         pad = "<pad>"
 
     embedding_size = 300
-    max_token_length = 10
+    max_token_length = 15
 
     class Training() :
         n_epochs = 50
@@ -51,7 +71,7 @@ class Constants() :
 
 class DataManager() :
     def __init__(self) :
-        glove = torchvocab.GloVe(name = '840B', dim = 300, cache = os.path.join(Constants.Data.datadir, Constants.Data.glove_dir))
+        glove = torchvocab.Vectors(name = os.path.join(Constants.Data.datadir, Constants.Data.glove_path))
         counter = Counter([w for w in glove.stoi])
         self.vocab = torchvocab.Vocab(counter, vectors = glove, specials = [Constants.SpecialTokens.pad, Constants.SpecialTokens.unk])
         self.embedding_layer = nn.Embedding.from_pretrained(self.vocab.vectors)
@@ -193,22 +213,29 @@ class Trainer() :
 
     def train(self, train_set, val_set = None) :
         for epoch in range(Constants.Training.n_epochs) :
+            ep_start = time.time()
             logging.info("Epoch : {}".format(epoch))
 
-            for batch in DataManager.batch(train_set) :
+            batches = DataManager.batch(train_set)
+            random.shuffle(batches)
+
+            for batch in batches :
                 self.optimizer.zero_grad()
-                loss = self.model.step(DataManager.batch_indices_to_tensor(batch.token_ids), torch.from_numpy(batch.target.as_matrix()))
+                loss = self.model.step(DataManager.batch_indices_to_tensor(batch.token_ids), torch.from_numpy(batch.target.values))
                 tbrd.log_value("loss", loss)
                 self.optimizer.step()
 
             if val_set is not None :
-                val_f1 = self.model.calculate_f1(DataManager.batch_indices_to_tensor(val_set.token_ids), torch.from_numpy(val_set.target.as_matrix()))
+                val_f1 = self.model.calculate_f1(DataManager.batch_indices_to_tensor(val_set.token_ids), torch.from_numpy(val_set.target.values))
                 logging.info("Validation F1 : {}".format(val_f1))
                 tbrd.log_value("Validation F1", val_f1, epoch)
 
+            ep_end = time.time()
+            logging.info("Epoch time : {:.5f} secs".format(ep_end - ep_start))
+
 
 def main() :
-    modelName = "LSTM"
+    global MODELNAME
 
     if not os.path.exists(Constants.Data.model_dir) :
         os.mkdir(Constants.Data.model_dir)
@@ -221,11 +248,11 @@ def main() :
     test_set = DataManager.load_data(os.path.join(Constants.Data.datadir, Constants.Data.test))
     logging.info("Data loaded")
 
-    train_set = train_set[:1000000]
-    val_set = val_set[:10000]
-    test_set = test_set[:1000]
+    global TRAINING_SAMPLE
+    if TRAINING_SAMPLE != "all" :
+        train_set = train_set[:TRAINING_SAMPLE]
 
-    if modelName == "LR" :
+    if MODELNAME == "LR" :
         model = LRModel()
         model.fit(train_set)
         logging.info("Model trained")
@@ -241,7 +268,7 @@ def main() :
 
         model.feature_importance()
 
-    elif modelName == "LSTM" :
+    elif MODELNAME == "LSTM" :
         dm = DataManager()
         logging.info("DataManager loaded")
 
@@ -256,7 +283,7 @@ def main() :
         logging.info("Model trained")
 
     end_time = time.time()
-    logging.info("Total time : {} secs".format(end_time - start_time))
+    logging.info("Total time : {:.5f} secs".format(end_time - start_time))
 
 
 if __name__ == "__main__" :

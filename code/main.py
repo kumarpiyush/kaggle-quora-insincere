@@ -2,6 +2,7 @@
 MODELNAME = "LSTM"
 TRAINING_SAMPLE = 1000000
 HAS_TBRD = True
+USE_CUDA = False
 
 # imports
 import os
@@ -41,6 +42,7 @@ else :
 
     tbrd = TensorBoardLogger()
 
+
 class Constants() :
     class Data() :
         datadir = "../input"
@@ -67,6 +69,15 @@ class Constants() :
 
     class Lstm() :
         hidden_unit_size = 32
+
+
+class Utils() :
+    def to_cuda(x) :
+        global USE_CUDA
+        if USE_CUDA :
+            return x.cuda()
+        else :
+            return x
 
 
 class DataManager() :
@@ -196,7 +207,7 @@ class LstmModel(nn.Module) :
         with torch.no_grad() :
             t_presoftmax = self.forward(batch)
             t_softmax = self.softmax(t_presoftmax)
-            return t_softmax[:,1].numpy()
+            return t_softmax[:,1].cpu().numpy()
 
     def predict(self, batch) :
         return [0 if x<0.5 else 1 for x in self.predict_proba(batch)]
@@ -221,12 +232,12 @@ class Trainer() :
 
             for batch in batches :
                 self.optimizer.zero_grad()
-                loss = self.model.step(DataManager.batch_indices_to_tensor(batch.token_ids), torch.from_numpy(batch.target.values))
+                loss = self.model.step(Utils.to_cuda(DataManager.batch_indices_to_tensor(batch.token_ids)), Utils.to_cuda(torch.from_numpy(batch.target.values)))
                 tbrd.log_value("loss", loss)
                 self.optimizer.step()
 
             if val_set is not None :
-                val_f1 = self.model.calculate_f1(DataManager.batch_indices_to_tensor(val_set.token_ids), torch.from_numpy(val_set.target.values))
+                val_f1 = self.model.calculate_f1(Utils.to_cuda(DataManager.batch_indices_to_tensor(val_set.token_ids)), val_set.target.values)
                 logging.info("Validation F1 : {}".format(val_f1))
                 tbrd.log_value("Validation F1", val_f1, epoch)
 
@@ -276,7 +287,7 @@ def main() :
         val_set["token_ids"] = dm.sentences_to_indices(val_set.question_text)
         test_set["token_ids"] = dm.sentences_to_indices(test_set.question_text)
 
-        model = LstmModel(dm.embedding_layer)
+        model = Utils.to_cuda(LstmModel(dm.embedding_layer))
 
         trainer = Trainer(model)
         trainer.train(train_set, val_set)
